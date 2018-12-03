@@ -29,7 +29,7 @@ class _MCLeaf(object):
     self.labels = set()
 
   def _UpdateTuple(self, unused_seq, label=None, _labelExclDepth=0):
-    """Update the count, ignore the rest.
+    """Update the count and labels, ignore the rest.
 
     Arguments:
       unused_seq: Unused sequence object to match #MarkovChain.Update()
@@ -41,7 +41,7 @@ class _MCLeaf(object):
     
     self.count += 1
 
-  def GetRandomTuple(self,seed,depth):
+  def GetRandomTuple(self, seed, depth, labelset=None):
     """ this should never be called """
     raise NotImplementedException()
     return tuple()
@@ -168,7 +168,7 @@ class MarkovChain(dict):
 
     # if we're at the bottom of the tree, we don't recurse,
     # otherwise we walk down the tree passing the labelset on.
-    if self._max <= 1:
+    if depth <= 1:
       if labelset is not None:
         labelset |= self[retVal].labels
       return (retVal,)
@@ -192,7 +192,7 @@ class MarkovChain(dict):
         target -= mkv.count
     return None
 
-  def GetRandomSequence(self,seed=None, depth=None, labelset=None):
+  def GetRandomSequence(self, seed=None, depth=None, labelset=None):
     """Generate a random sequence of elements.
 
     Returns a generator which will return a random sequence
