@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# Copyright 2009, Mitch Patenaude
+# Copyright 2009,2018 Mitch Patenaude
 
 __author__ = 'Mitch Patenaude (patenaude@gmail.com)'
 
@@ -46,6 +46,12 @@ class _MCLeaf(object):
     raise NotImplementedException()
     return tuple()
 
+  def _GetLabels(self, seq):
+    if seq:
+      raise ValueError('MCLeaf can\'t contain subsequences like {}'.format(repr(seq)))
+    return self.labels.copy()
+
+
 class MarkovChain(dict):
   """A tree representation of a markov chain.
 
@@ -78,15 +84,12 @@ class MarkovChain(dict):
     self._min = min
     self.labels = set()
 
-
-
   def Update(self, seq, label=None):
     """Updates from a tuple or list, but not an interator."""
     # this takes care of all the full length subsequences
     # for ind in xrange(len(seq)-self._min+1):
     for ind in xrange(len(seq)-self._min+1):
       self._UpdateTuple(tuple(seq[ind:ind+self._max]), label=label)
-
 
   def _UpdateTuple(self, t, label=None, _labelExclDepth=None):
     """updates the statistics.
@@ -242,7 +245,7 @@ class MarkovChain(dict):
     while len(seq) >= full_seq_len:
       yield seq[0]
       seq = seq[1:]
-      new_seq = self.GetRandomTuple(seq,depth=depth, labelset=labelset)
+      new_seq = self.GetRandomTuple(seq, depth=depth, labelset=labelset)
       if new_seq:
         seq = new_seq
 
@@ -250,6 +253,35 @@ class MarkovChain(dict):
     for element in seq:
       yield element
 
+  def _GetLabels(self, seq):
+    if len(seq) > 0:
+      if seq[0] in self:
+        return self[seq[0]]._GetLabels(seq[1:])
+      else:
+        return None
+    else:
+      return self.labels.copy()
+
+  def GetAnnotatedSequence(self, seed, depth=None):
+
+    if depth is None:
+      depth = self._max
+
+    while seed and len(seed) >= depth:
+      seq = seed[:depth]
+      labelset = self._GetLabels(seq)
+      yield seq[0], labelset
+      seed = seed[1:]
+
+    labelset = set()
+    seq = self.GetRandomTuple(seed, depth=depth, labelset=labelset)
+    while len(seq) >= depth:
+      yield seq[0], labelset
+      labelset = set()
+      seq = self.GetRandomTuple(seq[1:], depth=depth, labelset=labelset)
+
+    for element in seq:
+      yield element, labelset
 
   def PrintTree(self, depth=None, _rec_depth=0):
     if depth is None:
