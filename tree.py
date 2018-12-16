@@ -262,7 +262,7 @@ class MarkovChain(dict):
     else:
       return self.labels.copy()
 
-  def GetAnnotatedSequence(self, seed, depth=None):
+  def GetAnnotatedSequence(self, seed=None, depth=None):
 
     if depth is None:
       depth = self._max
