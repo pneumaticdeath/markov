@@ -85,7 +85,7 @@ class MarkovChain(dict):
     self.labels = set()
 
   def Update(self, seq, label=None):
-    """Updates from a tuple or list, but not an interator."""
+    """Updates from a tuple or list, but not an iterator."""
     # this takes care of all the full length subsequences
     # for ind in xrange(len(seq)-self._min+1):
     for ind in xrange(len(seq)-self._min+1):
