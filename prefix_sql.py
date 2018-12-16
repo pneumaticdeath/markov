@@ -267,6 +267,41 @@ class MarkovPrefixSql(object):
         for extra in seed_tuple:
             yield extra
 
+    def GetAnnotatedSequence(self, seed=None, depth=None):
+        if depth is not None and depth != self._max:
+            raise ValueError('Prefix mappings only support max depth')
+
+        while seed and len(seed) >= self._max:
+            seq = seed[:self._max]
+            labelset = self._getLabels(seq)
+            yield seq[0], labelset
+            seed = seed[1:]
+
+        labelset = set()
+        seq = self.GetRandomTuple(seed, labelset=labelset)
+        while len(seq) >= self._max:
+            yield seq[0], labelset
+            # this implementation doesn't find labels at the end state, so we save them
+            old_labels = labelset
+            labelset = set()
+            seq = self.GetRandomTuple(seq[1:], labelset=labelset)
+
+        for element in seq:
+            yield element, old_labels
+
+    def _getLabels(self, seq):
+        prefix = seq[:self._max-1]
+        leaf = seq[self._max-1]
+        labelset = set()
+        prefix_id = self._getPrefixId(prefix)
+        if prefix_id is None:
+            return labelset
+        leaf_id = self._getLeafId(prefix_id, leaf)
+        if leaf_id is None:
+            return labelset
+        self._updateLabelsFromLeaf(leaf_id, labelset)
+        return labelset
+
 
 if __name__ == '__main__':
     import sys
@@ -279,14 +314,9 @@ if __name__ == '__main__':
         chain.Update(seq, f)
     t = chain.GetRandomTuple()
     print(repr(t))
-    spacer = ''
-    labelset = set()
     element_count = 0
-    for element in chain.GetRandomSequence(seed=t, labelset=labelset):
-        sys.stdout.write(spacer + element.encode('utf-8'))
+    for element,labelset in chain.GetAnnotatedSequence(seed=t):
+        print('{}: {}'.format(element.encode('utf-8'), repr(labelset)))
         element_count += 1
         if element_count > 1000:
             break
-        if spacer == '':
-            spacer = ' '
-    print('\nlabels: {}'.format(repr(labelset)))
