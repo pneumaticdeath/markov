@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import logging
 import random
 import sqlite3
 
@@ -170,9 +171,13 @@ class MarkovPrefixSql(object):
         except sqlite3.OperationalError:
             pass
 
-    def GetRandomTuple(self, seed, depth=None, labelset=None):
+    def GetRandomTuple(self, seed=None, depth=None, labelset=None):
         if depth is not None and depth != self._max:
             raise ValueError('depth!=max not supported in prefix chains')
+
+        if seed is None:
+            seed = []
+
         prefix = seed[:self._max-1]
         if len(prefix) < self._max - 1:
             prefix_id, prefix = self._getPrefixIdLike(prefix)
@@ -180,14 +185,23 @@ class MarkovPrefixSql(object):
             prefix_id = self._getPrefixId(prefix)
 
         if prefix_id is None:
-            return None
+            return tuple(seed)
 
         leaf_id, leaf = self._getRandomLeaf(prefix_id, labelset)
 
-        return tuple(prefix) + (leaf,)
+        if leaf_id is not None:
+            return tuple(prefix) + (leaf,)
+        else:
+            return tuple(prefix)
 
     def _getPrefixIdLike(self, prefix):
-        prefix_search_str = self._seperator.join(prefix) + self._seperator + '%';
+        logging.debug('Getting prefix based on {}'.format(repr(prefix)))
+        if prefix:
+            prefix_search_str = self._seperator.join(prefix) + self._seperator + '%'
+        else:
+            prefix_search_str = '%'
+
+        logging.debug('Prefix search string = "{}"'.format(prefix_search_str))
         results = self._cursor.execute("""
             SELECT prefix_id, prefix, num_seen FROM prefixes
                 WHERE prefix like ?;""", [prefix_search_str,])
@@ -196,6 +210,7 @@ class MarkovPrefixSql(object):
         for prefix_id, prefix_str, count in results:
             total_count += count
             prefix_map[(prefix_id, prefix_str)] = count
+        logging.debug("found {} candidtates with total count {}".format(len(prefix_map), total_count))
         if total_count == 0:
             return None, None
         target = random.randint(0, total_count-1)
@@ -237,13 +252,41 @@ class MarkovPrefixSql(object):
         for row in results:
             labelset.add(row[0])
 
+    def GetRandomSequence(self, seed=None, depth=None, labelset=None):
+        if depth is not None and depth != self._max:
+            raise ValueError('Prefix mappings only support max depth')
+
+        while seed and len(seed) >= self._max:
+            yield seed[0]
+            seed = seed[1:]
+
+        seed_tuple = self.GetRandomTuple(seed, labelset=labelset)
+        while len(seed_tuple) >= self._max:
+            yield seed_tuple[0]
+            seed_tuple = self.GetRandomTuple(seed=seed_tuple[1:], labelset=labelset)
+        for extra in seed_tuple:
+            yield extra
+
 
 if __name__ == '__main__':
     import sys
+    logging.basicConfig(level=logging.DEBUG)
     chain = MarkovPrefixSql(max=int(sys.argv[1]), dbfile=sys.argv[2])
-    seq = sys.argv[3:]
-    if seq:
-        chain.Update(seq, 'argv')
-    t = chain.GetRandomTuple(sys.argv[3:5])
+    for f in sys.argv[3:]:
+        print('processing {}'.format(f))
+        fh = open(f, 'r')
+        seq = fh.read().decode('utf-8').split()
+        chain.Update(seq, f)
+    t = chain.GetRandomTuple()
     print(repr(t))
-
+    spacer = ''
+    labelset = set()
+    element_count = 0
+    for element in chain.GetRandomSequence(seed=t, labelset=labelset):
+        sys.stdout.write(spacer + element.encode('utf-8'))
+        element_count += 1
+        if element_count > 1000:
+            break
+        if spacer == '':
+            spacer = ' '
+    print('\nlabels: {}'.format(repr(labelset)))
