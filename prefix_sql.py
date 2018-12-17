@@ -224,13 +224,11 @@ class MarkovPrefixSql(object):
             return tuple(prefix)
 
     def _getPrefixIdLike(self, prefix):
-        logging.debug('Getting prefix based on {}'.format(repr(prefix)))
         if prefix:
             prefix_search_str = self._seperator.join(prefix) + self._seperator + '%'
         else:
             prefix_search_str = '%'
 
-        logging.debug('Prefix search string = "{}"'.format(prefix_search_str))
         results = self._cursor.execute("""
             SELECT prefix_id, prefix, num_seen FROM prefixes
                 WHERE prefix like ?;""", [prefix_search_str,])
@@ -239,7 +237,6 @@ class MarkovPrefixSql(object):
         for prefix_id, prefix_str, count in results:
             total_count += count
             prefix_map[(prefix_id, prefix_str)] = count
-        logging.debug("found {} candidtates with total count {}".format(len(prefix_map), total_count))
         if total_count == 0:
             return None, None
         target = random.randint(0, total_count-1)
