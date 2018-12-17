@@ -128,7 +128,7 @@ class MarkovPrefixSql(object):
         try:
             self._cursor.execute("""INSERT INTO seen_labels(label) VALUES(?);""", 
                 [str(label),])
-        except sqlitee.OperationalError:
+        except sqlite3.OperationalError:
             pass
 
     def _updateTuple(self, t, l):
