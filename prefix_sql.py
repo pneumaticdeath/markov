@@ -6,7 +6,7 @@ import sqlite3
 
 class MarkovPrefixSql(object):
 
-    SCHEMA_VER = "0.0.1"
+    SCHEMA_VER = "0.0.2"
     SCHEMA_INIT = [
         """CREATE TABLE IF NOT EXISTS metadata (
             key TEXT NOT NULL,
@@ -35,14 +35,19 @@ class MarkovPrefixSql(object):
             FOREIGN KEY (leaf_id) REFERENCES leaves(leaf_id)
         );""",
         """CREATE INDEX IF NOT EXISTS leaf_label ON leaf_labels(leaf_id);""",
+        """CREATE TABLE IF NOT EXISTS seen_labels (
+            label TEXT PRIMARY KEY
+        );""",
+
     ]
 
-    def __init__(self, max=4, min=None, seperator=None, dbfile=None):
+    def __init__(self, max=4, min=None, seperator=None, dbfile=None, ignore_duplicate_labels=True):
         self._max = max
         if min is not None and min != max:
             raise ValueError('Minimum must equal maximum for prefix chains')
         self._min = max
         self._seperator = seperator
+        self._ignore_dupes = ignore_duplicate_labels
         self.initDB(dbfile)
 
     def initDB(self, filename):
@@ -93,13 +98,37 @@ class MarkovPrefixSql(object):
     def Update(self, seq, label=None):
         subseq = seq[:self._max-1]
 
+        if label is not None and self._ignore_dupes and self._isLabelSeen(label):
+            return 0
+
         for element in seq[self._max-1:]:
             subseq.append(element)
             self._updateTuple(subseq, label)
             subseq = subseq[1:] # pop off the first element
 
         self._updateTuple(subseq, label)
+        if label is not None:
+            self._markLabelSeen(label)
         self._prefixdb.commit()
+        return 1
+
+    def _isLabelSeen(self, label):
+        label_str = str(label)
+        results = self._cursor.execute("""
+            SELECT count(DISTINCT label) FROM seen_labels
+                WHERE label = ?;""", [label_str,])
+        for row in results:
+            if row[0] == 0:
+                return False
+            else:
+                return True
+    
+    def _markLabelSeen(self, label):
+        try:
+            self._cursor.execute("""INSERT INTO seen_labels(label) VALUES(?);""", 
+                [str(label),])
+        except sqlitee.OperationalError:
+            pass
 
     def _updateTuple(self, t, l):
         prefix = t[0:self._max-1]
