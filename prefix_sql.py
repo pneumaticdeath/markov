@@ -56,6 +56,7 @@ class MarkovPrefixSql(object):
         self._prefixdb = sqlite3.connect(filename)
         self._cursor = self._prefixdb.cursor()
         self._cursor.execute('PRAGMA journal_mode=wal')
+        self._cursor.execute('PRAGMA foreign_keys = ON')
         for statement in self.SCHEMA_INIT:
             try:
                 self._cursor.execute(statement);
