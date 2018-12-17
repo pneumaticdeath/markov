@@ -307,6 +307,7 @@ class MarkovPrefixSql(object):
             seed = seed[1:]
 
         labelset = set()
+        old_labels = labelset
         seq = self.GetRandomTuple(seed, labelset=labelset)
         while len(seq) >= self._max:
             yield seq[0], labelset
