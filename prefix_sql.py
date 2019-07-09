@@ -6,7 +6,7 @@ import sqlite3
 
 class MarkovPrefixSql(object):
 
-    SCHEMA_VER = "0.0.2"
+    SCHEMA_VER = "0.0.3"
     SCHEMA_INIT = [
         """CREATE TABLE IF NOT EXISTS metadata (
             key TEXT NOT NULL,
@@ -41,12 +41,12 @@ class MarkovPrefixSql(object):
 
     ]
 
-    def __init__(self, max=4, min=None, seperator=None, dbfile=None, ignore_duplicate_labels=True):
+    def __init__(self, max=4, min=None, separator=None, dbfile=None, ignore_duplicate_labels=True):
         self._max = max
         if min is not None and min != max:
             raise ValueError('Minimum must equal maximum for prefix chains')
         self._min = max
-        self._seperator = seperator
+        self._separator = separator
         self._ignore_dupes = ignore_duplicate_labels
         self.initDB(dbfile)
 
@@ -69,23 +69,35 @@ class MarkovPrefixSql(object):
         if dbschema_version is None:
             self._setMeta('schema_version', self.SCHEMA_VER)
         elif dbschema_version != self.SCHEMA_VER:
-            raise ValueError('This database created with schema version {}, needs {}'.format(dbschema_version, self.SCHEMA_VER))
-            
+            self.convert_schema(dbschema_version)
+
         dbmax = self._getMeta('max_chain_length')
         if dbmax is None:
             self._setMeta('max_chain_length', self._max)
         elif int(dbmax) != self._max:
             raise ValueError('max for db already set to {}, not {}'.format(dbmax, max))
-        sep = self._getMeta('seperator')
+        sep = self._getMeta('separator')
         if sep is None:
-            if self._seperator is None:
-                self._seperator = ' '
-            self._setMeta('seperator', self._seperator)
+            if self._separator is None:
+                self._separator = ' '
+            self._setMeta('separator', self._separator)
         else: 
-            if self._seperator is None:
-                self._seperator = sep
-            elif sep != self._seperator:
-                raise ValueError('seperator does not match what db was configured with')
+            if self._separator is None:
+                self._separator = sep
+            elif sep != self._separator:
+                raise ValueError('separator does not match what db was configured with')
+
+    def convert_schema(self, version):
+        if version == '0.0.2':
+            # changes: The metadata tag "separator" was mispelled "seperator"
+            sep = self._getMeta('seperator')
+            self._setMeta('separator', sep)
+            self._delMeta('seperator')
+            self._setMeta('schema_version', '0.0.3')
+            version = '0.0.3'
+
+        if version != self.SCHEMA_VER:
+            raise ValueError('This database created with schema version {}, needs {}'.format(version, self.SCHEMA_VER))
 
     def _getMeta(self, key):
         results = self._cursor.execute("SELECT value FROM metadata WHERE key = ?;", [key,])
@@ -95,6 +107,9 @@ class MarkovPrefixSql(object):
 
     def _setMeta(self, key, value):
         self._cursor.execute("INSERT INTO metadata(key, value) VALUES(?, ?);", [key, str(value)])
+
+    def _delMeta(self, key):
+        self._cursor.execute("DELETE FROM metadata WHERE key = ?;", [key, ])
 
     def Update(self, seq, label=None):
         subseq = seq[:self._max-1]
@@ -136,7 +151,7 @@ class MarkovPrefixSql(object):
         if len(t) >= self._max:
             leaf = t[self._max-1]
         else:
-            leaf = self._seperator
+            leaf = self._separator
 
         prefix_id = self._getAndIncPrefixId(prefix)
         self._getAndIncLeafId(prefix_id, leaf, l)
@@ -148,7 +163,7 @@ class MarkovPrefixSql(object):
                 UPDATE prefixes SET num_seen = num_seen + 1
                     WHERE prefix_id = ?; """, [prefix_id,]);
         else:
-            prefix_str = self._seperator.join(prefix)
+            prefix_str = self._separator.join(prefix)
             self._cursor.execute("""
                 INSERT INTO prefixes(prefix, num_seen) VALUES (?, ?);""",
                 [prefix_str, 1])
@@ -157,7 +172,7 @@ class MarkovPrefixSql(object):
         return prefix_id
 
     def _getPrefixId(self, prefix):
-        prefix_str = self._seperator.join(prefix)
+        prefix_str = self._separator.join(prefix)
         results = self._cursor.execute("""
             SELECT prefix_id, num_seen FROM prefixes WHERE prefix = ?;""",
             [prefix_str, ])
@@ -226,7 +241,7 @@ class MarkovPrefixSql(object):
 
     def _getPrefixIdLike(self, prefix):
         if prefix:
-            prefix_search_str = self._seperator.join(prefix) + self._seperator + '%'
+            prefix_search_str = self._separator.join(prefix) + self._separator + '%'
         else:
             prefix_search_str = '%'
 
@@ -250,10 +265,10 @@ class MarkovPrefixSql(object):
         assert False, 'This should\'t happen'
 
     def _tokenize(self, string):
-        if self._seperator == ' ':
+        if self._separator == ' ':
             return list(string.split())
-        elif self._seperator:
-            return list(string.split(self.seperator))
+        elif self._separator:
+            return list(string.split(self.separator))
         else:
             return list(string)
 
