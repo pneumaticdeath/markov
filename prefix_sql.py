@@ -6,7 +6,7 @@ import sqlite3
 
 class MarkovPrefixSql(object):
 
-    SCHEMA_VER = "0.0.3"
+    SCHEMA_VER = "0.0.4"
     SCHEMA_INIT = [
         """CREATE TABLE IF NOT EXISTS metadata (
             key TEXT NOT NULL,
@@ -24,6 +24,7 @@ class MarkovPrefixSql(object):
             prefix_id INT NOT NULL,
             suffix TEXT,
             num_seen INT NOT NULL,
+            initial INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (prefix_id) REFERENCES prefixes(prefix_id)
         );""",
         """CREATE INDEX IF NOT EXISTS leaf_prefix ON leaves(prefix_id);""",
@@ -35,6 +36,7 @@ class MarkovPrefixSql(object):
             FOREIGN KEY (leaf_id) REFERENCES leaves(leaf_id)
         );""",
         """CREATE INDEX IF NOT EXISTS leaf_label ON leaf_labels(leaf_id);""",
+        """CREATE INDEX IF NOT EXISTS initial_prefix on leaves(initial);""",
         """CREATE TABLE IF NOT EXISTS seen_labels (
             label TEXT PRIMARY KEY
         );""",
@@ -117,12 +119,14 @@ class MarkovPrefixSql(object):
         if label is not None and self._ignore_dupes and self._isLabelSeen(label):
             return 0
 
+        initial = True
         for element in seq[self._max-1:]:
             subseq.append(element)
-            self._updateTuple(subseq, label)
+            self._updateTuple(subseq, label, initial)
             subseq = subseq[1:] # pop off the first element
+            initial = False
 
-        self._updateTuple(subseq, label)
+        self._updateTuple(subseq, label, initial)
         if label is not None:
             self._markLabelSeen(label)
         self._prefixdb.commit()
@@ -146,7 +150,7 @@ class MarkovPrefixSql(object):
         except sqlite3.OperationalError:
             pass
 
-    def _updateTuple(self, t, l):
+    def _updateTuple(self, t, l, initial):
         prefix = t[0:self._max-1]
         if len(t) >= self._max:
             leaf = t[self._max-1]
@@ -154,7 +158,7 @@ class MarkovPrefixSql(object):
             leaf = self._separator
 
         prefix_id = self._getAndIncPrefixId(prefix)
-        self._getAndIncLeafId(prefix_id, leaf, l)
+        self._getAndIncLeafId(prefix_id, leaf, l, initial)
 
     def _getAndIncPrefixId(self, prefix):
         prefix_id = self._getPrefixId(prefix)
@@ -182,7 +186,7 @@ class MarkovPrefixSql(object):
         self._last_prefix_count = 0
         return None
 
-    def _getAndIncLeafId(self, prefix_id, suffix, label):
+    def _getAndIncLeafId(self, prefix_id, suffix, label, initial):
         leaf_id = self._getLeafId(prefix_id, suffix)
         if leaf_id is not None:
             self._cursor.execute("""
@@ -194,6 +198,10 @@ class MarkovPrefixSql(object):
                     VALUES(?, ?, ?);""", [prefix_id, suffix, 1])
             leaf_id = self._cursor.lastrowid
             self._last_leaf_count = 1
+        if initial:
+            self._cursor.execute("""
+                UPDATE leaves SET initial = initial + 1
+                    WHERE leaf_id = ?;""", [leaf_id, ])
         if label:
             self._updateLeafLabel(leaf_id, label)
         return leaf_id
@@ -216,7 +224,7 @@ class MarkovPrefixSql(object):
         except sqlite3.OperationalError:
             pass
 
-    def GetRandomTuple(self, seed=None, depth=None, labelset=None):
+    def GetRandomTuple(self, seed=None, depth=None, labelset=None, initial=False):
         if depth is not None and depth != self._max:
             raise ValueError('depth!=max not supported in prefix chains')
 
@@ -225,7 +233,7 @@ class MarkovPrefixSql(object):
 
         prefix = seed[:self._max-1]
         if len(prefix) < self._max - 1:
-            prefix_id, prefix = self._getPrefixIdLike(prefix)
+            prefix_id, prefix = self._getPrefixIdLike(prefix, initial=initial)
         else:
             prefix_id = self._getPrefixId(prefix)
 
@@ -239,15 +247,27 @@ class MarkovPrefixSql(object):
         else:
             return tuple(prefix)
 
-    def _getPrefixIdLike(self, prefix):
+    def GetInitialRandomTuple(self, seed=None, depth=None, labelset=None):
+        return self.GetRandomTuple(seed, depth, labelset, initial=True);
+
+    def _getPrefixIdLike(self, prefix, initial=False):
         if prefix:
             prefix_search_str = self._separator.join(prefix) + self._separator + '%'
         else:
             prefix_search_str = '%'
 
-        results = self._cursor.execute("""
-            SELECT prefix_id, prefix, num_seen FROM prefixes
-                WHERE prefix like ?;""", [prefix_search_str,])
+        if initial:
+            sql = """
+                SELECT p.prefix_id, p.prefix, l.initial
+                FROM prefixes p JOIN leaves l USING (prefix_id)
+                WHERE p.prefix like ? AND l.initial > 0;"""
+        else:
+            sql = """
+                SELECT p.prefix_id, p.prefix, p.num_seen 
+                FROM prefixes p
+                WHERE p.prefix like ?;"""
+
+        results = self._cursor.execute(sql, [prefix_search_str,])
         prefix_map = {}
         total_count = 0
         for prefix_id, prefix_str, count in results:
