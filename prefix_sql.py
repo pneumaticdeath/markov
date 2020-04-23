@@ -272,7 +272,11 @@ class MarkovPrefixSql(object):
         total_count = 0
         for prefix_id, prefix_str, count in results:
             total_count += count
-            prefix_map[(prefix_id, prefix_str)] = count
+            # prefix_Id and prefix_str are not necessarily unique, so we catch collisions
+            if (prefix_id, prefix_str) in prefix_map:
+                prefix_map[(prefix_id, prefix_str)] += count
+            else:
+                prefix_map[(prefix_id, prefix_str)] = count
         if total_count == 0:
             return None, None
         target = random.randint(0, total_count-1)
